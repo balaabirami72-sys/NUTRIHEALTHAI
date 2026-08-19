@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, MapPin, Sparkles } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ArrowLeft, MapPin, Sparkles, Search, Loader2 } from "lucide-react";
 import { getCategory, INDIAN_CATALOG, type CatalogCategory } from "@/lib/indian-catalog";
 import { MINERAL_META, type Mineral } from "@/lib/nutrition";
+import { searchFood } from "../controllers/foodController";
 
 export const Route = createFileRoute("/catalog/$category")({
   head: ({ params }) => {
@@ -40,6 +43,25 @@ export const Route = createFileRoute("/catalog/$category")({
 
 function CatalogCategoryPage() {
   const { cat } = Route.useLoaderData() as { cat: CatalogCategory };
+  
+  // Search state
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+    
+    setLoading(true);
+    setHasSearched(true);
+    
+    const response = await searchFood(query);
+    setSearchResults(response.data || []);
+    setLoading(false);
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-8 p-4 sm:p-8">
       <header className="space-y-3">
@@ -55,6 +77,45 @@ function CatalogCategoryPage() {
         </div>
       </header>
 
+      {/* Live Search Section */}
+      <section className="rounded-2xl border border-border/60 bg-card/60 p-4 space-y-4">
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <Input 
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search USDA & Indian Food Database..."
+            className="bg-background"
+          />
+          <Button type="submit" disabled={loading}>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            <span className="ml-2 hidden sm:inline">Search</span>
+          </Button>
+        </form>
+
+        {hasSearched && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold">Search Results:</h3>
+            {searchResults.length > 0 ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {searchResults.map((item, idx) => (
+                  <Card key={item.id || idx} className="p-3 bg-background/50">
+                    <p className="font-medium text-sm">{item.name || item.description}</p>
+                    {item.nutrients && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Calories: {item.nutrients.calories_kcal || 0} kcal | Protein: {item.nutrients.protein_g || 0}g
+                      </p>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No matching items found in database or USDA.</p>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* Catalog Items Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cat.items.map((it) => (
           <Card key={it.name} className="border-border/60 bg-card/60">

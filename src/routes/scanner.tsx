@@ -7,13 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { MINERAL_META, MINERALS, MEAL_TYPES, MEAL_TYPE_META, mealTypeFromDate, useMeals, type Meal, type MealType, type Mineral } from "@/lib/nutrition";
-import { Camera, Upload, Check, ArrowLeft, ArrowRight, Sparkles, Type, ImagePlus } from "lucide-react";
+import { Camera, Upload, Check, ArrowLeft, ArrowRight, Sparkles, Type, ImagePlus, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { AnalyzingState } from "@/components/AnalyzingState";
 import { VOICE } from "@/lib/voice";
 import { computeTargets, useProfile } from "@/lib/nutrition";
 
-// Safe API handler targeting Vercel API route
 async function callAnalyzeApi(payload: {
   imageBase64?: string;
   mimeType?: string;
@@ -50,10 +49,13 @@ type EntryMode = "upload" | "text" | "camera";
 type Question = { id: string; label: string; options: string[] };
 type Identified = { name: string; foods: { name: string; grams: number }[]; questions: Question[] };
 
+type Macros = { calories: number; protein: number; carbs: number; fat: number; fiber: number };
+
 type ScanResult = {
   name: string;
   foods: { name: string; grams: number }[];
   minerals: Record<Mineral, number>;
+  macros?: Macros;
   prepNotes: string;
 };
 
@@ -66,10 +68,14 @@ const DEMO_IDENTIFIED: Identified = {
     { name: "Sesame seeds", grams: 10 },
   ],
   questions: [
-    { id: "fat", label: "Cooked with which fat?", options: ["None", "Olive oil", "Butter", "Ghee"] },
-    { id: "salt", label: "How much salt / seasoning?", options: ["None", "Light", "Heavy"] },
-    { id: "portion", label: "Portion size?", options: ["Small", "Standard", "Large"] },
-    { id: "dairy", label: "Any dairy added (cheese / yogurt)?", options: ["None", "A little", "A lot"] },
+    { id: "q1", label: "Cooked with which oil or fat?", options: ["None / Steamed", "Olive oil", "Butter", "Ghee"] },
+    { id: "q2", label: "How much oil was used in total?", options: ["Under 1 tsp", "1–2 tsp", "1 tbsp or more"] },
+    { id: "q3", label: "How much salt / seasoning was added?", options: ["None", "Light", "Moderate", "Heavy"] },
+    { id: "q4", label: "Portion size relative to standard?", options: ["Small snack", "Standard lunch/dinner", "Large portion"] },
+    { id: "q5", label: "Any added dairy (cheese, milk, yogurt, cream)?", options: ["None", "A little (1-2 tbsp)", "Generous portion"] },
+    { id: "q6", label: "Protein preparation method?", options: ["Skinless & Grilled", "Pan-fried with oil", "Deep fried", "Boiled/Poached"] },
+    { id: "q7", label: "Was any sweet sauce or glaze added?", options: ["None", "Teriyaki / BBQ", "Honey / Sweet chili"] },
+    { id: "q8", label: "Grain type or refining level?", options: ["Whole grain", "Refined white grain", "Low-carb swap"] },
   ],
 };
 
@@ -140,7 +146,7 @@ function Scanner() {
     try {
       const r = await callAnalyzeApi({ text: textDesc.trim() });
       setIdentified(r);
-      setAnswers({}); 
+      setAnswers({});
       setOtherText({});
       setStep(3);
     } catch (err) {
@@ -189,19 +195,22 @@ function Scanner() {
       });
 
       const minerals = {} as Record<Mineral, number>;
-      for (const k of MINERALS) minerals[k] = +Number(r.minerals?.[k] || 0).toFixed(1);
-      
+      for (const k of MINERALS) {
+        minerals[k] = +Number(r.minerals?.[k] || 0).toFixed(1);
+      }
+
       setResult({
         name: r.name || identified.name,
         foods: r.foods || identified.foods,
         minerals,
+        macros: r.macros,
         prepNotes: r.prepNotes || '',
       });
       setStep(5);
     } catch (err) {
       console.error(err);
-      setScanError(err instanceof Error ? err.message : "Couldn't compute minerals");
-      toast.error("Couldn't compute minerals", { description: "Please try again." });
+      setScanError(err instanceof Error ? err.message : "Couldn't compute nutrients");
+      toast.error("Couldn't compute nutrients", { description: "Please try again." });
       setStep(3);
     }
   };
@@ -218,7 +227,7 @@ function Scanner() {
       mealType,
     };
     addMeal(meal);
-    
+
     const targets = computeTargets(profile);
     let bestMineral: Mineral = "iron";
     let bestPct = 0;
@@ -261,9 +270,9 @@ function Scanner() {
             {mode === "text" && (
               <div className="space-y-3">
                 <Label htmlFor="desc">Describe what you ate</Label>
-                <Textarea id="desc" value={textDesc} onChange={(e) => setTextDesc(e.target.value)} rows={4} placeholder="e.g., 2 scrambled eggs with sourdough toast, avocado, and a flat white" className="bg-background/40" />
+                <Textarea id="desc" value={textDesc} onChange={(e) => setTextDesc(e.target.value)} rows={4} placeholder="e.g., Puri with potato masala and sambhar" className="bg-background/40" />
                 <div className="flex flex-wrap gap-2">
-                  {["2 eggs and avocado toast", "Bowl of dal with rice", "Grilled salmon, broccoli, sweet potato", "Chicken caesar salad"].map((s) => (
+                  {["2 eggs and avocado toast", "Bowl of dal with rice", "Grilled salmon, broccoli, sweet potato", "Puri with potato masala"].map((s) => (
                     <button key={s} onClick={() => setTextDesc(s)} className="rounded-full border border-border/60 bg-background/40 px-3 py-1 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground">{s}</button>
                   ))}
                 </div>
@@ -309,8 +318,8 @@ function Scanner() {
       {step === 3 && identified && (
         <Card className="border-border/60 bg-card/60">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-accent" /> Tell us a bit more</CardTitle>
-            <CardDescription>We spotted these foods — answer a few questions so we can track minerals accurately.</CardDescription>
+            <CardTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-accent" /> Identified Food: {identified.name}</CardTitle>
+            <CardDescription>Answer these questions ({identified.questions.length} total) so we can scale your nutrition accurately.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {imageUrl && (
@@ -318,7 +327,7 @@ function Scanner() {
             )}
 
             <div>
-              <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Identified foods</div>
+              <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Identified components</div>
               <div className="flex flex-wrap gap-2">
                 {identified.foods.map((f) => (
                   <span key={f.name} className="rounded-full border border-border/60 bg-background/40 px-3 py-1 text-sm">
@@ -332,15 +341,17 @@ function Scanner() {
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">{scanError}</div>
             )}
 
-            {identified.questions.map((q) => (
-              <DynamicQ
-                key={q.id}
-                q={q}
-                value={answers[q.id]}
-                onChange={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
-                other={otherText[q.id] || ""}
-                onOther={(v) => setOtherText((t) => ({ ...t, [q.id]: v }))}
-              />
+            {identified.questions.map((q, idx) => (
+              <div key={q.id} className="space-y-2 border-t border-border/40 pt-4 first:border-none first:pt-0">
+                <div className="text-xs font-semibold text-primary">Question {idx + 1} of {identified.questions.length}</div>
+                <DynamicQ
+                  q={q}
+                  value={answers[q.id]}
+                  onChange={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
+                  other={otherText[q.id] || ""}
+                  onOther={(v) => setOtherText((t) => ({ ...t, [q.id]: v }))}
+                />
+              </div>
             ))}
 
             <div className="flex justify-between pt-2">
@@ -350,7 +361,7 @@ function Scanner() {
                 disabled={identified.questions.some((q) => !answers[q.id])}
                 className="bg-[image:var(--gradient-primary)] text-primary-foreground hover:opacity-90"
               >
-                Calculate minerals<ArrowRight className="ml-2 h-4 w-4" />
+                Calculate nutrition<ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
           </CardContent>
@@ -358,7 +369,7 @@ function Scanner() {
       )}
 
       {step === 4 && (
-        <AnalyzingState image={imageUrl} label="Calculating macros & minerals…" sub="Cross-referencing USDA FoodData Central per 100g and scaling to your portions." />
+        <AnalyzingState image={imageUrl} label="Calculating macros & minerals…" sub="Computing macro totals and micro distributions based on your intake." />
       )}
 
       {step === 5 && result && (
@@ -387,18 +398,50 @@ function Scanner() {
                 ))}
               </div>
             </div>
+
             <div>
-              <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Identified foods</div>
+              <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Identified foods & estimated intake</div>
               <div className="flex flex-wrap gap-2">
                 {result.foods.map((f) => (
-                  <span key={f.name} className="rounded-full border border-border/60 bg-background/40 px-3 py-1 text-sm">
-                    {f.name} <span className="text-muted-foreground">({f.grams}g)</span>
+                  <span key={f.name} className="rounded-full border border-border/60 bg-background/40 px-3 py-1 text-sm font-medium">
+                    {f.name}: <span className="text-primary">{f.grams}g</span>
                   </span>
                 ))}
               </div>
             </div>
+
+            {result.macros && (
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
+                  <Activity className="h-3.5 w-3.5" /> Macronutrients
+                </div>
+                <div className="grid grid-cols-5 gap-2">
+                  <div className="rounded-xl border border-border/50 bg-background/40 p-3 text-center">
+                    <div className="text-xs text-muted-foreground">Calories</div>
+                    <div className="mt-1 text-base font-bold">{result.macros.calories} <span className="text-xs font-normal">kcal</span></div>
+                  </div>
+                  <div className="rounded-xl border border-border/50 bg-background/40 p-3 text-center">
+                    <div className="text-xs text-muted-foreground">Protein</div>
+                    <div className="mt-1 text-base font-bold">{result.macros.protein}g</div>
+                  </div>
+                  <div className="rounded-xl border border-border/50 bg-background/40 p-3 text-center">
+                    <div className="text-xs text-muted-foreground">Carbs</div>
+                    <div className="mt-1 text-base font-bold">{result.macros.carbs}g</div>
+                  </div>
+                  <div className="rounded-xl border border-border/50 bg-background/40 p-3 text-center">
+                    <div className="text-xs text-muted-foreground">Fat</div>
+                    <div className="mt-1 text-base font-bold">{result.macros.fat}g</div>
+                  </div>
+                  <div className="rounded-xl border border-border/50 bg-background/40 p-3 text-center">
+                    <div className="text-xs text-muted-foreground">Fiber</div>
+                    <div className="mt-1 text-base font-bold">{result.macros.fiber}g</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
-              <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Extracted minerals</div>
+              <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Micronutrients & Minerals</div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                 {MINERALS.map((k) => (
                   <div key={k} className="rounded-xl border border-border/50 bg-background/40 p-3">
@@ -407,16 +450,17 @@ function Scanner() {
                       {MINERAL_META[k].label}
                     </div>
                     <div className="mt-1 text-lg font-semibold tabular-nums">
-                      {result.minerals[k].toFixed(1)} <span className="text-xs font-normal text-muted-foreground">{MINERAL_META[k].unit}</span>
+                      {result.minerals[k]?.toFixed(1) || 0} <span className="text-xs font-normal text-muted-foreground">{MINERAL_META[k].unit}</span>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
+
             <div className="flex justify-between pt-2">
               <Button variant="ghost" onClick={() => { setStep(1); setImageUrl(null); setImageDataUrl(null); setResult(null); setIdentified(null); setAnswers({}); setOtherText({}); }}>Scan another</Button>
               <Button onClick={logMeal} className="bg-[image:var(--gradient-primary)] text-primary-foreground hover:opacity-90">
-                <Check className="mr-2 h-4 w-4" />Log this meal
+                <Check className="mr-2 h-4 w-4" />Add to log
               </Button>
             </div>
           </CardContent>

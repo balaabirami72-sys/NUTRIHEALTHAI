@@ -7,12 +7,32 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { MINERAL_META, MINERALS, MEAL_TYPES, MEAL_TYPE_META, mealTypeFromDate, useMeals, type Meal, type MealType, type Mineral } from "@/lib/nutrition";
-import { Camera, Upload, Check, ArrowLeft, ArrowRight, Sparkles, Type, ImagePlus, X } from "lucide-react";
+import { Camera, Upload, Check, ArrowLeft, ArrowRight, Sparkles, Type, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
-import { identifyMeal, computeMinerals, identifyMealFromText } from "@/lib/scan.functions";
 import { AnalyzingState } from "@/components/AnalyzingState";
 import { VOICE } from "@/lib/voice";
 import { computeTargets, useProfile } from "@/lib/nutrition";
+
+// Safe API handler targeting Vercel API route
+async function callAnalyzeApi(payload: {
+  imageBase64?: string;
+  mimeType?: string;
+  text?: string;
+  answers?: Array<{ label: string; value: string }>;
+}) {
+  const response = await fetch('/api/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to communicate with AI server');
+  }
+
+  return data;
+}
 
 export const Route = createFileRoute("/scanner")({
   head: () => ({
@@ -90,7 +110,15 @@ function Scanner() {
     try {
       const dataUrl = await fileToDataUrl(file);
       setImageDataUrl(dataUrl);
-      const r = await identifyMeal({ data: { imageDataUrl: dataUrl } });
+
+      const [header, base64Data] = dataUrl.split(',');
+      const mimeType = header.match(/:(.*?);/)?.[1] || file.type || 'image/jpeg';
+
+      const r = await callAnalyzeApi({
+        imageBase64: base64Data,
+        mimeType,
+      });
+
       setIdentified(r);
       setAnswers({});
       setOtherText({});
@@ -110,9 +138,10 @@ function Scanner() {
     setImageUrl(null);
     setImageDataUrl(null);
     try {
-      const r = await identifyMealFromText({ data: { text: textDesc.trim() } });
+      const r = await callAnalyzeApi({ text: textDesc.trim() });
       setIdentified(r);
-      setAnswers({}); setOtherText({});
+      setAnswers({}); 
+      setOtherText({});
       setStep(3);
     } catch (err) {
       console.error(err);
@@ -143,17 +172,31 @@ function Scanner() {
     setStep(4);
     setScanError(null);
     try {
-      const r = await computeMinerals({
-        data: {
-          imageDataUrl: imageDataUrl || undefined,
-          name: identified.name,
-          foods: identified.foods,
-          answers: resolvedAnswers(),
-        },
+      let base64Data: string | undefined;
+      let mimeType: string | undefined;
+
+      if (imageDataUrl) {
+        const [header, data] = imageDataUrl.split(',');
+        base64Data = data;
+        mimeType = header.match(/:(.*?);/)?.[1] || 'image/jpeg';
+      }
+
+      const r = await callAnalyzeApi({
+        imageBase64: base64Data,
+        mimeType,
+        text: textDesc || identified.name,
+        answers: resolvedAnswers(),
       });
+
       const minerals = {} as Record<Mineral, number>;
-      for (const k of MINERALS) minerals[k] = +Number(r.minerals[k] || 0).toFixed(1);
-      setResult({ name: r.name, foods: r.foods, minerals, prepNotes: r.prepNotes });
+      for (const k of MINERALS) minerals[k] = +Number(r.minerals?.[k] || 0).toFixed(1);
+      
+      setResult({
+        name: r.name || identified.name,
+        foods: r.foods || identified.foods,
+        minerals,
+        prepNotes: r.prepNotes || '',
+      });
       setStep(5);
     } catch (err) {
       console.error(err);
@@ -175,7 +218,7 @@ function Scanner() {
       mealType,
     };
     addMeal(meal);
-    // Find the biggest mineral bump for a celebratory line
+    
     const targets = computeTargets(profile);
     let bestMineral: Mineral = "iron";
     let bestPct = 0;

@@ -1,7 +1,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI } from '@google/genai';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Safely pull from standard or VITE_ prefixed environment keys
+const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+
+if (!apiKey) {
+  console.error("Missing GEMINI_API_KEY in environment variables.");
+}
+
+const ai = new GoogleGenAI({ apiKey: apiKey || '' });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -75,8 +82,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     return res.status(200).json(JSON.parse(response.text || '{}'));
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Failed to analyze meal' });
+  } catch (error: any) {
+    console.error("Analyze Error:", error?.message || error);
+    return res.status(500).json({ error: 'Failed to analyze meal', details: error?.message });
   }
 }

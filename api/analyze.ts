@@ -2,11 +2,15 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI } from '@google/genai';
 
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-const usdaApiKey = process.env.USDA_API_KEY || 'DEMO_KEY'; // Uses DEMO_KEY if not configured yet
+const usdaApiKey = process.env.USDA_API_KEY || 'DEMO_KEY';
+
+if (!geminiApiKey) {
+  console.error("Missing GEMINI_API_KEY in environment variables.");
+}
 
 const ai = new GoogleGenAI({ apiKey: geminiApiKey || '' });
 
-// USDA Nutrient ID Mapping Table
+// Standard USDA Nutrient IDs -> UI Card Keys Mapping
 const NUTRIENT_MAP: Record<number, string> = {
   1008: 'calories',
   1003: 'protein',
@@ -35,11 +39,11 @@ const NUTRIENT_MAP: Record<number, string> = {
   1095: 'zinc',
   1098: 'copper',
   1103: 'selenium',
-  1099: 'fluouride',
+  1099: 'fluoride',
   1101: 'manganese',
 };
 
-// Fetch official nutrition per 100g from USDA API
+// Query USDA Database per 100g
 async function fetchUSDANutrients(foodName: string) {
   try {
     const res = await fetch(
@@ -55,6 +59,34 @@ async function fetchUSDANutrients(foodName: string) {
     console.error(`USDA Search error for ${foodName}:`, err);
   }
   return [];
+}
+
+// Generate with automatic retry and model fallback (Fixes 503 Overloaded errors)
+async function generateWithFallback(contents: any[]) {
+  const models = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents,
+          config: { responseMimeType: 'application/json' },
+        });
+        return response;
+      } catch (error: any) {
+        const status = error?.status || error?.code;
+        if ((status === 503 || status === 429) && attempt === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          continue;
+        }
+        if (model === models[models.length - 1] && attempt === 2) {
+          throw error;
+        }
+      }
+    }
+  }
+  throw new Error('All Gemini model attempts failed');
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -76,36 +108,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    if (text) contents.push(text);
+    if (text) {
+      contents.push(text);
+    }
 
-    // STAGE 2: Perform USDA database calculation
+    // STAGE 2: Perform automated calculation via USDA DB + Gemini Detection
     if (answers && answers.length > 0) {
       const prompt = `
-        Identify all food components and exact portion weights in grams from this image and user answers:
+        You are a nutrition analysis engine.
+        Analyze the image and user responses to determine food items and exact weights:
         ${JSON.stringify(answers)}
 
-        Return JSON matching this format:
+        Return JSON in this format:
         {
-          "name": "Full Meal Title",
-          "prepNotes": "Short summary of cooking method and oils used.",
+          "name": "Full Meal Name",
+          "prepNotes": "Short preparation and oil usage summary.",
           "foods": [
-            { "name": "Standard USDA search name (e.g., Chickpea curry)", "grams": 175 },
+            { "name": "Standard USDA food item query (e.g., Chickpea curry)", "grams": 175 },
             { "name": "Fried wheat bread", "grams": 245 }
           ]
         }
       `;
       contents.push(prompt);
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents,
-        config: { responseMimeType: 'application/json' },
-      });
-
+      const response = await generateWithFallback(contents);
       const parsed = JSON.parse(response.text || '{}');
       const foodsList = parsed.foods || [];
 
-      // Accumulator objects for macros and micros
+      // Initialize base totals
       const macros = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
       const micronutrients: Record<string, number> = {
         carbs: 0, fiber: 0, protein: 0, fat: 0, satFat: 0,
@@ -117,27 +147,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         chromium: 0, fluoride: 0, molybdenum: 0, cobalt: 0, chlorine: 0, vanadium: 0, nickel: 0
       };
 
-      // Query USDA API for each recognized ingredient and calculate weights
+      // Calculate totals mathematically using USDA data
       for (const item of foodsList) {
         const usdaNutrients = await fetchUSDANutrients(item.name);
-        const multiplier = item.grams / 100; // USDA stores values per 100g
+        const multiplier = item.grams / 100;
 
         usdaNutrients.forEach((n: any) => {
           const key = NUTRIENT_MAP[n.nutrientId];
-          const calculatedValue = Number((n.value * multiplier).toFixed(1));
+          const val = Number((n.value * multiplier).toFixed(1));
 
           if (key) {
             if (key in macros) {
-              (macros as any)[key] = Number(((macros as any)[key] + calculatedValue).toFixed(1));
+              (macros as any)[key] = Number(((macros as any)[key] + val).toFixed(1));
             }
             if (key in micronutrients) {
-              micronutrients[key] = Number((micronutrients[key] + calculatedValue).toFixed(1));
+              micronutrients[key] = Number((micronutrients[key] + val).toFixed(1));
             }
           }
         });
       }
 
-      // Sync core macros to micronutrients grid
+      // Sync top macros
       micronutrients.carbs = macros.carbs;
       micronutrients.fiber = macros.fiber;
       micronutrients.protein = macros.protein;
@@ -152,26 +182,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // STAGE 1: Generating questions
+    // STAGE 1: Identification & Clarifying Questions Generation
     const initialPrompt = `
       Identify the food in the image/description.
       Return JSON:
-      1. "name": Title of the meal.
-      2. "foods": List of items with estimated weights [{ "name": string, "grams": number }].
-      3. "questions": 5-8 clarifying questions on cooking methods, oils, portion size.
-         [{ "id": "q1", "label": "Text?", "options": ["A", "B"] }]
+      1. "name": Meal Title.
+      2. "foods": Identified food items [{ "name": string, "grams": number }].
+      3. "questions": 5 to 8 clarifying questions on cooking methods, oils, portion size.
+         Format: [{ "id": "q1", "label": "Text?", "options": ["Option 1", "Option 2"] }]
     `;
     contents.push(initialPrompt);
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents,
-      config: { responseMimeType: 'application/json' },
-    });
-
+    const response = await generateWithFallback(contents);
     return res.status(200).json(JSON.parse(response.text || '{}'));
   } catch (error: any) {
-    console.error('API Error:', error?.message || error);
+    console.error("API Processing Error:", error?.message || error);
     return res.status(500).json({ error: 'Failed to analyze meal', details: error?.message });
   }
 }

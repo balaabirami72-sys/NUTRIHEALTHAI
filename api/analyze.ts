@@ -32,66 +32,76 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       contents.push(text);
     }
 
-    // STAGE 2: Answers submitted -> Compute full macro + micro + mineral breakdown
+    // STAGE 2: Calculate macros & micronutrients based on image + user details
     if (answers && answers.length > 0) {
       const prompt = `
-        Analyze this meal along with the user's detailed answers:
-        User details: ${JSON.stringify(answers)}
-        
-        Return a single JSON object matching this exact structure:
+        You are a clinical dietitian and Indian nutrition expert.
+        Analyze the uploaded food image/description along with these specific user answers:
+        ${JSON.stringify(answers)}
+
+        Task:
+        1. Identify each dish component and estimate its weight in grams.
+        2. Calculate total macronutrients (Calories, Protein, Carbs, Fat, Fiber).
+        3. Dynamically estimate exact non-zero micronutrient and mineral contents based on standard USDA / Indian Food Composition Tables (IFCT) for these exact foods and quantities.
+
+        Return ONLY a JSON object matching this exact schema key structure (use numbers only):
         {
-          "name": "Specific dish name (e.g., Poori with Chana Masala & Aloo Sabzi)",
+          "name": "Full Meal Title (e.g., Paneer Butter Masala with 2 Butter Naan)",
           "foods": [
-            { "name": "Poori", "grams": 140 },
-            { "name": "Chana Masala", "grams": 220 },
-            { "name": "Aloo Sabzi", "grams": 220 }
+            { "name": "Paneer Butter Masala", "grams": 250 },
+            { "name": "Butter Naan", "grams": 120 }
           ],
-          "prepNotes": "Short summary of preparation style, oils used, and portion estimation.",
+          "prepNotes": "Brief summary of estimated oil/fat usage, cooking style, and portion sizing.",
           "macros": {
-            "calories": 1340,
-            "protein": 36,
-            "carbs": 171,
-            "fat": 61,
-            "fiber": 27
+            "calories": 850,
+            "protein": 28,
+            "carbs": 82,
+            "fat": 46,
+            "fiber": 8
           },
           "micronutrients": {
-            "vitaminA": 450,
-            "vitaminC": 35,
-            "vitaminD": 0,
-            "vitaminE": 4.5,
-            "vitaminK": 22,
-            "thiamin": 0.8,
-            "riboflavin": 0.6,
-            "niacin": 7.2,
-            "pantothenicAcid": 2.1,
-            "vitaminB6": 1.1,
-            "biotin": 5,
-            "folate": 180,
-            "vitaminB12": 0.2,
-            "calcium": 240,
-            "phosphorus": 570,
-            "magnesium": 225,
-            "sodium": 1500,
-            "potassium": 1570,
-            "chloride": 900,
-            "sulfur": 150,
-            "iron": 11,
-            "zinc": 4.5,
-            "copper": 0.9,
-            "selenium": 30,
-            "iodine": 15,
-            "manganese": 2.3,
-            "chromium": 12,
-            "fluoride": 0.1,
-            "molybdenum": 25,
+            "carbs": 82,
+            "fiber": 8,
+            "protein": 28,
+            "fat": 46,
+            "sat_fat": 18,
+            "vitamin_a": 320,
+            "vitamin_c": 14,
+            "vitamin_d": 0.8,
+            "vitamin_e": 2.1,
+            "vitamin_k": 8,
+            "thiamin": 0.4,
+            "riboflavin": 0.5,
+            "niacin": 3.8,
+            "pantothenic_acid": 1.2,
+            "vitamin_b6": 0.6,
+            "biotin": 4,
+            "folate": 65,
+            "vitamin_b12": 1.1,
+            "calcium": 480,
+            "phosphorus": 510,
+            "magnesium": 85,
+            "sodium": 1120,
+            "potassium": 640,
+            "chloride": 750,
+            "sulfur": 95,
+            "iron": 4.2,
+            "zinc": 3.1,
+            "copper": 0.4,
+            "selenium": 22,
+            "iodine": 12,
+            "manganese": 0.8,
+            "chromium": 5,
+            "fluoride": 0.05,
+            "molybdenum": 15,
             "cobalt": 0,
             "chlorine": 0,
             "vanadium": 0,
             "nickel": 0
           }
         }
-        
-        IMPORTANT: Populate estimated non-zero values for key vitamins and minerals based on standard clinical dietary tables for these ingredients. Do NOT return empty or zeroed micronutrient objects.
+
+        CRITICAL RULE: Never return 0.0 for vitamins or minerals if the ingredients naturally contain them (e.g., dairy contains Calcium/B12, vegetables contain Vitamin C/A, pulses contain Iron/Folate).
       `;
       contents.push(prompt);
 
@@ -104,14 +114,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json(JSON.parse(response.text || '{}'));
     }
 
-    // STAGE 1: Initial identification & generating questions
+    // STAGE 1: Initial identification & generating clarifying questions
     const initialPrompt = `
-      Identify the food in the image/description.
+      Identify the food items present in this image or description.
       
       Return JSON with:
-      1. "name": Detailed title of the dish or meal.
-      2. "foods": List of identified components with estimated weight [{ "name": string, "grams": number }].
-      3. "questions": Generate EXACTLY between 5 and 10 relevant clarifying questions to determine portion size, cooking oil/fat, hidden ingredients, brand/preparation method, and additions.
+      1. "name": Title of the meal.
+      2. "foods": List of identified food components with estimated weight [{ "name": string, "grams": number }].
+      3. "questions": Generate 5 to 8 specific clarifying questions regarding portion size, oil/ghee type, cooking method, side dishes, and hidden ingredients to accurately estimate calories and nutrients.
          Format each question as:
          {
            "id": "q1",

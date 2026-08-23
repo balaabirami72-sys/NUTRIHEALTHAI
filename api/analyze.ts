@@ -8,7 +8,7 @@ if (!geminiApiKey) {
   console.error("Missing GEMINI_API_KEY in environment variables.");
 }
 
-const ai = new GoogleGenAI({ apiKey: geminiApiKey || '' });
+const ai = new GoogleGenAI({ apiKey: geminiApiKey || 'dummy-key' });
 
 // Standard USDA Nutrient IDs (Legacy 1000s & Modern FDC 300s)
 const NUTRIENT_MAP: Record<string | number, string> = {
@@ -157,7 +157,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       contents.push(prompt);
 
       const response = await generateWithFallback(contents);
-      const parsed = parseJsonResponse(response.text);
+      const rawText = response?.text || '{}';
+      const parsed = parseJsonResponse(rawText);
       const foodsList = parsed.foods || [];
 
       // Initialize base totals
@@ -217,7 +218,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         `;
         try {
           const fallbackRes = await generateWithFallback([fallbackPrompt]);
-          const estimatedMicros = parseJsonResponse(fallbackRes.text);
+          const rawFallbackText = fallbackRes?.text || '{}';
+          const estimatedMicros = parseJsonResponse(rawFallbackText);
           Object.assign(micronutrients, estimatedMicros);
         } catch (e) {
           console.error("Micronutrient fallback failed:", e);
@@ -278,7 +280,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     contents.push(initialPrompt);
 
     const response = await generateWithFallback(contents);
-    const parsedInitial = parseJsonResponse(response.text);
+    const rawInitialText = response?.text || '{}';
+    const parsedInitial = parseJsonResponse(rawInitialText);
     return res.status(200).json(parsedInitial);
   } catch (error: any) {
     console.error("API Processing Error:", error?.message || error);

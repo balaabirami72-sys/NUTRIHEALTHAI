@@ -89,6 +89,15 @@ async function generateWithFallback(contents: any[]) {
   throw new Error('All Gemini model attempts failed');
 }
 
+// Helper to safely parse AI responses by removing potential markdown fences
+function parseJsonResponse(rawText: string | undefined) {
+  const cleanText = (rawText || '{}')
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .trim();
+  return JSON.parse(cleanText);
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -119,7 +128,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         Analyze the image and user responses to determine food items and exact weights:
         ${JSON.stringify(answers)}
 
-        Return JSON in this format:
+        Return JSON in this exact format:
         {
           "name": "Full Meal Name",
           "prepNotes": "Short preparation and oil usage summary.",
@@ -132,7 +141,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       contents.push(prompt);
 
       const response = await generateWithFallback(contents);
-      const parsed = JSON.parse(response.text || '{}');
+      const parsed = parseJsonResponse(response.text);
       const foodsList = parsed.foods || [];
 
       // Initialize base totals
@@ -147,9 +156,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         chromium: 0, fluoride: 0, molybdenum: 0, cobalt: 0, chlorine: 0, vanadium: 0, nickel: 0
       };
 
-      // Calculate totals mathematically using USDA data
-      for (const item of foodsList) {
+      // Fetch USDA nutrients in parallel to prevent Vercel execution timeout
+      const foodPromises = foodsList.map(async (item: { name: string; grams: number }) => {
         const usdaNutrients = await fetchUSDANutrients(item.name);
+        return { item, usdaNutrients };
+      });
+
+      const results = await Promise.all(foodPromises);
+
+      // Accumulate total macros and micronutrients mathematically
+      for (const { item, usdaNutrients } of results) {
         const multiplier = item.grams / 100;
 
         usdaNutrients.forEach((n: any) => {
@@ -167,7 +183,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      // Sync top macros
+      // Sync top macros with micronutrient object
       micronutrients.carbs = macros.carbs;
       micronutrients.fiber = macros.fiber;
       micronutrients.protein = macros.protein;
@@ -185,16 +201,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // STAGE 1: Identification & Clarifying Questions Generation
     const initialPrompt = `
       Identify the food in the image/description.
-      Return JSON:
-      1. "name": Meal Title.
-      2. "foods": Identified food items [{ "name": string, "grams": number }].
-      3. "questions": 5 to 8 clarifying questions on cooking methods, oils, portion size.
-         Format: [{ "id": "q1", "label": "Text?", "options": ["Option 1", "Option 2"] }]
+      Return JSON in this format:
+      {
+        "name": "Meal Title",
+        "foods": [{ "name": "Item Name", "grams": 100 }],
+        "questions": [
+          { "id": "q1", "label": "Question text?", "options": ["Option 1", "Option 2"] }
+        ]
+      }
     `;
     contents.push(initialPrompt);
 
     const response = await generateWithFallback(contents);
-    return res.status(200).json(JSON.parse(response.text || '{}'));
+    const parsedInitial = parseJsonResponse(response.text);
+    return res.status(200).json(parsedInitial);
   } catch (error: any) {
     console.error("API Processing Error:", error?.message || error);
     return res.status(500).json({ error: 'Failed to analyze meal', details: error?.message });

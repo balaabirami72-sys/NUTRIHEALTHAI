@@ -11,7 +11,7 @@ if (!geminiApiKey) {
 const ai = new GoogleGenAI({ apiKey: geminiApiKey || '' });
 
 // Standard USDA Nutrient IDs (Legacy 1000s & Modern FDC 300s)
-const NUTRIENT_MAP: Record<number, string> = {
+const NUTRIENT_MAP: Record<string | number, string> = {
   // Macros
   1008: 'calories', 208: 'calories',
   1003: 'protein',  203: 'protein',
@@ -21,9 +21,9 @@ const NUTRIENT_MAP: Record<number, string> = {
   1258: 'satFat',   606: 'satFat',
 
   // Vitamins
-  1106: 'vitaminA', 320: 'vitaminA',
+  1106: 'vitaminA', 320: 'vitaminA', 318: 'vitaminA',
   1162: 'vitaminC', 401: 'vitaminC',
-  1114: 'vitaminD', 324: 'vitaminD',
+  1114: 'vitaminD', 324: 'vitaminD', 328: 'vitaminD',
   1109: 'vitaminE', 323: 'vitaminE',
   1185: 'vitaminK', 430: 'vitaminK',
   1165: 'thiamin',  404: 'thiamin',
@@ -31,7 +31,7 @@ const NUTRIENT_MAP: Record<number, string> = {
   1167: 'niacin',   406: 'niacin',
   1170: 'pantothenicAcid', 410: 'pantothenicAcid',
   1175: 'vitaminB6', 415: 'vitaminB6',
-  1177: 'folate',   435: 'folate',
+  1177: 'folate',   435: 'folate', 417: 'folate',
   1178: 'vitaminB12', 418: 'vitaminB12',
 
   // Minerals
@@ -185,9 +185,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const multiplier = item.grams / 100;
 
         usdaNutrients.forEach((n: any) => {
-          const id = n.nutrientId || n.nutrientNumber || n.nutrient?.id || n.id;
-          const key = NUTRIENT_MAP[Number(id)];
-          
+          const rawId = n.nutrientId ?? n.nutrientNumber ?? n.nutrient?.id ?? n.id;
+          const key = NUTRIENT_MAP[Number(rawId)] || NUTRIENT_MAP[String(rawId)];
+
           const rawVal = n.value ?? n.amount ?? 0;
           const val = Number((rawVal * multiplier).toFixed(1));
 

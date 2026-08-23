@@ -44,6 +44,7 @@ const NUTRIENT_MAP: Record<number, string> = {
 };
 
 // Query USDA Database per 100g
+// Query USDA Database per 100g
 async function fetchUSDANutrients(foodName: string) {
   try {
     const res = await fetch(
@@ -53,6 +54,7 @@ async function fetchUSDANutrients(foodName: string) {
     );
     const data = await res.json();
     if (data.foods && data.foods.length > 0) {
+      // Support both search format structures from USDA API
       return data.foods[0].foodNutrients || [];
     }
   } catch (err) {
@@ -165,12 +167,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const results = await Promise.all(foodPromises);
 
       // Accumulate total macros and micronutrients mathematically
+// Replace lines 170-190 with this flexible accumulation loop:
       for (const { item, usdaNutrients } of results) {
         const multiplier = item.grams / 100;
 
         usdaNutrients.forEach((n: any) => {
-          const key = NUTRIENT_MAP[n.nutrientId];
-          const val = Number((n.value * multiplier).toFixed(1));
+          // Support both nutrient ID paths (top-level ID or nested object)
+          const id = n.nutrientId || n.nutrientNumber || n.nutrient?.id;
+          const key = NUTRIENT_MAP[id];
+          
+          // Read value OR amount (USDA payload format varies by query)
+          const rawVal = n.value ?? n.amount ?? 0;
+          const val = Number((rawVal * multiplier).toFixed(1));
 
           if (key) {
             if (key in macros) {
@@ -189,6 +197,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       micronutrients.protein = macros.protein;
       micronutrients.fat = macros.fat;
 
+      // ADD THIS FALLBACK BLOCK HERE (Before res.status(200).json):
+      // If USDA returns 0 for all minerals, fall back to Gemini calculation
+      const hasMinerals = Object.entries(micronutrients).some(([k, v]) => !['carbs', 'fiber', 'protein', 'fat'].includes(k) && v > 0);
+      if (!hasMinerals && foodsList.length > 0) {
+        const fallbackPrompt = `
+          Calculate realistic estimated micronutrients for this meal based on the identified foods and user answers:
+          Foods: ${JSON.stringify(foodsList)}
+          User Answers: ${JSON.stringify(answers)}
+
+          Return strictly JSON mapping these exact keys to numbers (in mg or mcg as standard):
+          ${JSON.stringify(Object.keys(micronutrients))}
+        `;
+        try {
+          const fallbackRes = await generateWithFallback([fallbackPrompt]);
+          const estimatedMicros = parseJsonResponse(fallbackRes.text);
+          Object.assign(micronutrients, estimatedMicros);
+        } catch (e) {
+          console.error("Micronutrient fallback failed:", e);
+        }
+      }
+
       return res.status(200).json({
         name: parsed.name,
         prepNotes: parsed.prepNotes,
@@ -196,6 +225,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         macros,
         micronutrients,
       });
+
+      
     }
 
     // STAGE 1: Dynamic Identification & Item-Specific Clarifying Questions Generation

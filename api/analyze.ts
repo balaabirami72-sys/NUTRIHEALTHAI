@@ -198,15 +198,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // STAGE 1: Identification & Clarifying Questions Generation
+    // STAGE 1: Dynamic Identification & Item-Specific Clarifying Questions Generation
     const initialPrompt = `
-      Identify the food in the image/description.
-      Return JSON in this format:
+      Analyze the food image/description carefully.
+      
+      1. Identify all individual food items visible in the meal.
+      2. Generate 5 to 8 dynamic clarifying questions tailored SPECIFICALLY to the detected foods to calculate exact gram weights and micronutrient density.
+         - Questions MUST be specific to each dish (e.g., portion counts, serving sizes, oil/ghee usage, flour types, cooking methods).
+      
+      Return strictly valid JSON in this exact format:
       {
         "name": "Meal Title",
-        "foods": [{ "name": "Item Name", "grams": 100 }],
+        "foods": [{ "name": "Identified Food Item", "grams": 100 }],
         "questions": [
-          { "id": "q1", "label": "Question text?", "options": ["Option 1", "Option 2"] }
+          {
+            "id": "q1",
+            "label": "Food-specific question text?",
+            "options": ["Option 1", "Option 2", "Option 3", "Option 4"]
+          }
         ]
       }
     `;

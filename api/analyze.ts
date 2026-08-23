@@ -75,7 +75,8 @@ async function fetchUSDANutrients(foodName: string) {
 }
 
 async function generateWithFallback(contents: any[]) {
-  const models = ['gemini-2.5-flash'];
+  // Use 1.5-flash as the primary, fallback to 1.5-flash-8b
+  const models = ['gemini-1.5-flash', 'gemini-1.5-flash-8b'];
 
   for (const model of models) {
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -88,7 +89,7 @@ async function generateWithFallback(contents: any[]) {
         return response;
       } catch (error: any) {
         if (attempt === 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await new Promise((resolve) => setTimeout(resolve, 2000));
           continue;
         }
         throw error;

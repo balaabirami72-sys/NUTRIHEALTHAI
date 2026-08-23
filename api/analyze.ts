@@ -54,8 +54,20 @@ async function fetchUSDANutrients(foodName: string) {
     const res = await fetch(
       `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(
         foodName
-      )}&pageSize=1&api_key=${usdaApiKey}`
+      )}&pageSize=1&api_key=${usdaApiKey}`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Accept': 'application/json',
+        },
+      }
     );
+
+    if (!res.ok) {
+      console.error(`USDA API returned status ${res.status} for query: ${foodName}`);
+      return [];
+    }
+
     const data = await res.json();
     if (data.foods && data.foods.length > 0) {
       return data.foods[0].foodNutrients || [];

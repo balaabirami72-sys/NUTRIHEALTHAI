@@ -10,9 +10,8 @@ if (!geminiApiKey) {
 
 const ai = new GoogleGenAI({ apiKey: geminiApiKey || '' });
 
-// Standard USDA Nutrient IDs (Legacy 1000s & Modern FDC 300s)
+// Standard USDA Nutrient IDs
 const NUTRIENT_MAP: Record<string | number, string> = {
-  // Macros
   1008: 'calories', 208: 'calories',
   1003: 'protein',  203: 'protein',
   1005: 'carbs',    205: 'carbs',
@@ -20,7 +19,6 @@ const NUTRIENT_MAP: Record<string | number, string> = {
   1079: 'fiber',    291: 'fiber',
   1258: 'satFat',   606: 'satFat',
 
-  // Vitamins
   1106: 'vitaminA', 320: 'vitaminA', 318: 'vitaminA',
   1162: 'vitaminC', 401: 'vitaminC',
   1114: 'vitaminD', 324: 'vitaminD', 328: 'vitaminD',
@@ -34,7 +32,6 @@ const NUTRIENT_MAP: Record<string | number, string> = {
   1177: 'folate',   435: 'folate', 417: 'folate',
   1178: 'vitaminB12', 418: 'vitaminB12',
 
-  // Minerals
   1087: 'calcium',  301: 'calcium',
   1091: 'phosphorus', 305: 'phosphorus',
   1090: 'magnesium', 304: 'magnesium',
@@ -48,7 +45,6 @@ const NUTRIENT_MAP: Record<string | number, string> = {
   1101: 'manganese', 315: 'manganese',
 };
 
-// Query USDA Database per 100g
 async function fetchUSDANutrients(foodName: string) {
   try {
     const res = await fetch(
@@ -78,7 +74,6 @@ async function fetchUSDANutrients(foodName: string) {
   return [];
 }
 
-// Generate with automatic retry and model fallback
 async function generateWithFallback(contents: any[]) {
   const models = ['gemini-2.5-flash'];
 
@@ -103,7 +98,6 @@ async function generateWithFallback(contents: any[]) {
   throw new Error('All Gemini model attempts failed');
 }
 
-// Helper to safely parse AI responses
 function parseJsonResponse(rawText: string | undefined) {
   const cleanText = (rawText || '{}')
     .replace(/```json/gi, '')
@@ -122,7 +116,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const contents: any[] = [];
 
     if (imageBase64) {
-      const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '').trim();
       contents.push({
         inlineData: {
           data: cleanBase64,
@@ -132,10 +126,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (text) {
-      contents.push(text);
+      contents.push({ text: text });
     }
 
-    // STAGE 2: Perform automated calculation via USDA DB + Gemini Detection
+    // STAGE 2
     if (answers && answers.length > 0) {
       const prompt = `
         You are a nutrition analysis engine.
@@ -154,13 +148,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           ]
         }
       `;
-      contents.push(prompt);
+      contents.push({ text: prompt });
 
       const response = await generateWithFallback(contents);
       const parsed = parseJsonResponse(response.text);
       const foodsList = parsed.foods || [];
 
-      // Initialize base totals
       const macros = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
       const micronutrients: Record<string, number> = {
         carbs: 0, fiber: 0, protein: 0, fat: 0, satFat: 0,
@@ -172,7 +165,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         chromium: 0, fluoride: 0, molybdenum: 0, cobalt: 0, chlorine: 0, vanadium: 0, nickel: 0
       };
 
-      // Fetch USDA nutrients in parallel
       const foodPromises = foodsList.map(async (item: { name: string; grams: number }) => {
         const usdaNutrients = await fetchUSDANutrients(item.name);
         return { item, usdaNutrients };
@@ -180,14 +172,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const results = await Promise.all(foodPromises);
 
-      // Accumulate total macros and micronutrients mathematically
       for (const { item, usdaNutrients } of results) {
         const multiplier = item.grams / 100;
 
         usdaNutrients.forEach((n: any) => {
           const rawId = n.nutrientId ?? n.nutrientNumber ?? n.nutrient?.id ?? n.id;
           const key = NUTRIENT_MAP[Number(rawId)] || NUTRIENT_MAP[String(rawId)];
-
           const rawVal = n.value ?? n.amount ?? 0;
           const val = Number((rawVal * multiplier).toFixed(1));
 
@@ -202,10 +192,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      // Check key minerals specifically to verify if USDA mapped properly
       const hasKeyMinerals = micronutrients.calcium > 0 || micronutrients.iron > 0 || micronutrients.sodium > 0;
 
-      // Fall back to Gemini calculation if essential micronutrients were missed by USDA
       if (!hasKeyMinerals && foodsList.length > 0) {
         const fallbackPrompt = `
           Calculate realistic estimated micronutrients for this meal based on the identified foods and user answers:
@@ -216,7 +204,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           "satFat", "vitaminA", "vitaminC", "vitaminD", "vitaminE", "vitaminK", "thiamin", "riboflavin", "niacin", "pantothenicAcid", "vitaminB6", "folate", "vitaminB12", "calcium", "phosphorus", "magnesium", "sodium", "potassium", "iron", "zinc", "copper", "selenium", "manganese"
         `;
         try {
-          const fallbackRes = await generateWithFallback([fallbackPrompt]);
+          const fallbackRes = await generateWithFallback([{ text: fallbackPrompt }]);
           const estimatedMicros = parseJsonResponse(fallbackRes.text);
           Object.assign(micronutrients, estimatedMicros);
         } catch (e) {
@@ -224,13 +212,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Sync top macros into micronutrient object
       micronutrients.carbs = macros.carbs;
       micronutrients.fiber = macros.fiber;
       micronutrients.protein = macros.protein;
       micronutrients.fat = macros.fat;
 
-      // Provide alias keys expected by various front-end dashboard cards
       const mappedMicros: Record<string, number> = {
         ...micronutrients,
         vitA: micronutrients.vitaminA || 0,
@@ -255,7 +241,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // STAGE 1: Dynamic Identification & Item-Specific Clarifying Questions Generation
+    // STAGE 1
     const initialPrompt = `
       Analyze the food image/description carefully.
       
@@ -275,7 +261,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ]
       }
     `;
-    contents.push(initialPrompt);
+    contents.push({ text: initialPrompt });
 
     const response = await generateWithFallback(contents);
     const parsedInitial = parseJsonResponse(response.text);

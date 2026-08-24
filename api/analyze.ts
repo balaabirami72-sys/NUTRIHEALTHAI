@@ -149,8 +149,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       contents.push({ text: prompt });
 
       const response = await generateWithFallback(contents);
-      const rawText = typeof response.text === 'function' ? response.text() : response.text;
-      const parsed = parseJsonResponse(rawText);
+      const parsed = parseJsonResponse(response.text);
       const foodsList = parsed.foods || [];
 
       const macros = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
@@ -204,8 +203,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         `;
         try {
           const fallbackRes = await generateWithFallback([{ text: fallbackPrompt }]);
-          const fallbackRawText = typeof fallbackRes.text === 'function' ? fallbackRes.text() : fallbackRes.text;
-          const estimatedMicros = parseJsonResponse(fallbackRawText);
+          const estimatedMicros = parseJsonResponse(fallbackRes.text);
           Object.assign(micronutrients, estimatedMicros);
         } catch (e) {
           console.error("Micronutrient fallback failed:", e);
@@ -264,8 +262,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     contents.push({ text: initialPrompt });
 
     const response = await generateWithFallback(contents);
-    const rawTextInitial = typeof response.text === 'function' ? response.text() : response.text;
-    const parsedInitial = parseJsonResponse(rawTextInitial);
+    const parsedInitial = parseJsonResponse(response.text);
     return res.status(200).json(parsedInitial);
   } catch (error: any) {
     console.error("API Processing Error Details:", error);

@@ -72,13 +72,14 @@ async function fetchUSDANutrients(foodName: string) {
 }
 
 async function generateWithFallback(contents: any[]) {
-  const models = ['gemini-1.5-flash', 'gemini-1.5-flash-8b'];
+  // Updated model list compatible with the @google/genai SDK
+  const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
 
   for (const model of models) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const response = await ai.models.generateContent({
-          model,
+          model: model,
           contents,
           config: { responseMimeType: 'application/json' },
         });

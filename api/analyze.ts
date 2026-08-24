@@ -71,9 +71,8 @@ async function fetchUSDANutrients(foodName: string) {
   return [];
 }
 
-async function generateWithFallback(contents: any[]) {
-  // Updated model list compatible with the @google/genai SDK
-  const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+async function generateWithFallback(contents: any[]): Promise<any> {
+  const models = ['gemini-2.5-flash', 'gemini-1.5-flash'];
 
   for (const model of models) {
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -83,11 +82,14 @@ async function generateWithFallback(contents: any[]) {
           contents,
           config: { responseMimeType: 'application/json' },
         });
-        return response;
+
+        if (response) {
+          return response;
+        }
       } catch (error: any) {
         console.error(`Attempt ${attempt} for model ${model} failed:`, error?.message || error);
         if (attempt === 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, 1500));
           continue;
         }
       }

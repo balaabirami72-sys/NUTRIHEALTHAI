@@ -57,6 +57,7 @@ type ScanResult = {
   minerals: Record<Mineral, number>;
   macros?: Macros;
   prepNotes: string;
+  micronutrients?: Record<string, number>; // Added for full vitamin support
 };
 
 const DEMO_IDENTIFIED: Identified = {
@@ -194,10 +195,48 @@ function Scanner() {
         answers: resolvedAnswers(),
       });
 
-      const minerals = {} as Record<Mineral, number>;
-      for (const k of MINERALS) {
-        minerals[k] = +Number(r.minerals?.[k] || 0).toFixed(1);
-      }
+      // Extracts the micronutrients container regardless of how backend nests it
+const rawMicros = r.micronutrients || r.mappedMicros || r.minerals || r;
+
+const minerals = {} as Record<Mineral, number>;
+
+for (const k of MINERALS) {
+  const key = String(k).toLowerCase();
+
+  const val = 
+    rawMicros[k] ?? 
+    rawMicros[key] ?? 
+    
+    // --- Vitamins ---
+    (key === "vitamina" || key === "vita" ? (rawMicros.vitaminA ?? rawMicros.vitA ?? rawMicros.a) : undefined) ??
+    (key === "vitaminc" || key === "vitc" ? (rawMicros.vitaminC ?? rawMicros.vitC ?? rawMicros.c) : undefined) ??
+    (key === "vitamind" || key === "vitd" ? (rawMicros.vitaminD ?? rawMicros.vitD ?? rawMicros.d) : undefined) ??
+    (key === "vitamine" || key === "vite" ? (rawMicros.vitaminE ?? rawMicros.vitE ?? rawMicros.e) : undefined) ??
+    (key === "vitamink" || key === "vitk" ? (rawMicros.vitaminK ?? rawMicros.vitK ?? rawMicros.k_vit) : undefined) ??
+    (key === "thiamin" || key === "thiamine" || key === "b1" ? (rawMicros.thiamin ?? rawMicros.thiamine ?? rawMicros.b1) : undefined) ??
+    (key === "riboflavin" || key === "b2" ? (rawMicros.riboflavin ?? rawMicros.b2) : undefined) ??
+    (key === "niacin" || key === "b3" ? (rawMicros.niacin ?? rawMicros.b3) : undefined) ??
+    (key === "pantothenicacid" || key === "b5" ? (rawMicros.pantothenicAcid ?? rawMicros.pantothenic_acid ?? rawMicros.b5) : undefined) ??
+    (key === "vitaminb6" || key === "b6" ? (rawMicros.vitaminB6 ?? rawMicros.b6) : undefined) ??
+    (key === "folate" || key === "folicacid" || key === "b9" ? (rawMicros.folate ?? rawMicros.folicAcid ?? rawMicros.b9) : undefined) ??
+    (key === "vitaminb12" || key === "b12" ? (rawMicros.vitaminB12 ?? rawMicros.b12) : undefined) ??
+    
+    // --- Minerals & Trace Elements ---
+    (key === "calcium" ? (rawMicros.calcium ?? rawMicros.ca) : undefined) ??
+    (key === "iron" ? (rawMicros.iron ?? rawMicros.fe) : undefined) ??
+    (key === "magnesium" ? (rawMicros.magnesium ?? rawMicros.mg) : undefined) ??
+    (key === "phosphorus" ? (rawMicros.phosphorus ?? rawMicros.p) : undefined) ??
+    (key === "potassium" ? (rawMicros.potassium ?? rawMicros.k) : undefined) ??
+    (key === "sodium" ? (rawMicros.sodium ?? rawMicros.na) : undefined) ??
+    (key === "zinc" ? (rawMicros.zinc ?? rawMicros.zn) : undefined) ??
+    (key === "copper" ? (rawMicros.copper ?? rawMicros.cu) : undefined) ??
+    (key === "manganese" ? (rawMicros.manganese ?? rawMicros.mn) : undefined) ??
+    (key === "selenium" ? (rawMicros.selenium ?? rawMicros.se) : undefined) ??
+    (key === "fluoride" ? (rawMicros.fluoride ?? rawMicros.f) : undefined) ?? 
+    0;
+
+  minerals[k] = +Number(val).toFixed(1);
+}
 
       setResult({
         name: r.name || identified.name,

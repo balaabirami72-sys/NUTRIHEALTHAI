@@ -10,7 +10,6 @@ if (!geminiApiKey) {
 
 const ai = new GoogleGenAI({ apiKey: geminiApiKey || '' });
 
-// Standard USDA Nutrient IDs
 const NUTRIENT_MAP: Record<string | number, string> = {
   1008: 'calories', 208: 'calories',
   1003: 'protein',  203: 'protein',
@@ -18,7 +17,6 @@ const NUTRIENT_MAP: Record<string | number, string> = {
   1004: 'fat',      204: 'fat',
   1079: 'fiber',    291: 'fiber',
   1258: 'satFat',   606: 'satFat',
-
   1106: 'vitaminA', 320: 'vitaminA', 318: 'vitaminA',
   1162: 'vitaminC', 401: 'vitaminC',
   1114: 'vitaminD', 324: 'vitaminD', 328: 'vitaminD',
@@ -31,7 +29,6 @@ const NUTRIENT_MAP: Record<string | number, string> = {
   1175: 'vitaminB6', 415: 'vitaminB6',
   1177: 'folate',   435: 'folate', 417: 'folate',
   1178: 'vitaminB12', 418: 'vitaminB12',
-
   1087: 'calcium',  301: 'calcium',
   1091: 'phosphorus', 305: 'phosphorus',
   1090: 'magnesium', 304: 'magnesium',
@@ -75,7 +72,6 @@ async function fetchUSDANutrients(foodName: string) {
 }
 
 async function generateWithFallback(contents: any[]) {
-  // Use 1.5-flash as the primary, fallback to 1.5-flash-8b
   const models = ['gemini-1.5-flash', 'gemini-1.5-flash-8b'];
 
   for (const model of models) {
@@ -88,11 +84,11 @@ async function generateWithFallback(contents: any[]) {
         });
         return response;
       } catch (error: any) {
+        console.error(`Attempt ${attempt} for model ${model} failed:`, error?.message || error);
         if (attempt === 1) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           continue;
         }
-        throw error;
       }
     }
   }
@@ -100,7 +96,8 @@ async function generateWithFallback(contents: any[]) {
 }
 
 function parseJsonResponse(rawText: string | undefined) {
-  const cleanText = (rawText || '{}')
+  if (!rawText) return {};
+  const cleanText = rawText
     .replace(/```json/gi, '')
     .replace(/```/g, '')
     .trim();
@@ -152,7 +149,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       contents.push({ text: prompt });
 
       const response = await generateWithFallback(contents);
-      const parsed = parseJsonResponse(response.text);
+      const rawText = typeof response.text === 'function' ? response.text() : response.text;
+      const parsed = parseJsonResponse(rawText);
       const foodsList = parsed.foods || [];
 
       const macros = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
@@ -206,7 +204,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         `;
         try {
           const fallbackRes = await generateWithFallback([{ text: fallbackPrompt }]);
-          const estimatedMicros = parseJsonResponse(fallbackRes.text);
+          const fallbackRawText = typeof fallbackRes.text === 'function' ? fallbackRes.text() : fallbackRes.text;
+          const estimatedMicros = parseJsonResponse(fallbackRawText);
           Object.assign(micronutrients, estimatedMicros);
         } catch (e) {
           console.error("Micronutrient fallback failed:", e);
@@ -265,10 +264,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     contents.push({ text: initialPrompt });
 
     const response = await generateWithFallback(contents);
-    const parsedInitial = parseJsonResponse(response.text);
+    const rawTextInitial = typeof response.text === 'function' ? response.text() : response.text;
+    const parsedInitial = parseJsonResponse(rawTextInitial);
     return res.status(200).json(parsedInitial);
   } catch (error: any) {
-    console.error("API Processing Error:", error?.message || error);
-    return res.status(500).json({ error: 'Failed to analyze meal', details: error?.message });
+    console.error("API Processing Error Details:", error);
+    return res.status(500).json({ error: 'Failed to analyze meal', details: error?.message || String(error) });
   }
 }
